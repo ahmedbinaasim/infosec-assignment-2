@@ -1,0 +1,86 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Certificates and Private Keys (NEVER commit secrets!)
+certs/
+*.pem
+*.key
+*.crt
+*.csr
+*.pfx
+*.p12
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# Transcripts (session recordings - may contain sensitive data)
+transcripts/
+*.transcript
+
+# Assignment Files (personal/local only)
+CLAUDE.md
+IS_Assignment_2.pdf
+evidence/
+
+# Test outputs
+*.pcap
+*.pcapng
+
+# MySQL dumps (may contain sensitive test data)
+*.sql
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# OS generated files
+Thumbs.db
+.DS_Store
+desktop.ini
