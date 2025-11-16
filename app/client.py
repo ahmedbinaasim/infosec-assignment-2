@@ -98,7 +98,8 @@ def send_chat_message(
     plaintext: str,
     session_key: bytes,
     seqno: int,
-    private_key
+    private_key,
+    transcript_manager=None
 ) -> None:
     """
     Section 2.4: Send an encrypted and signed chat message.
@@ -108,6 +109,7 @@ def send_chat_message(
     2. Compute digest: h = SHA256(seqno || timestamp || ciphertext)
     3. Sign digest with sender's RSA private key
     4. Send as ChatMessage
+    5. Log to transcript (Section 2.5)
 
     Args:
         sock: Connected socket
@@ -115,6 +117,7 @@ def send_chat_message(
         session_key: 16-byte AES-128 key from DH exchange
         seqno: Sequence number (strictly increasing)
         private_key: Sender's RSA private key for signing
+        transcript_manager: Optional TranscriptManager for logging (Section 2.5)
 
     Raises:
         ConnectionError: If send fails
@@ -145,12 +148,17 @@ def send_chat_message(
     send_message(sock, chat_msg)
     print(f"[CLIENT] Sent message #{seqno}: '{plaintext}' (encrypted)")
 
+    # Step 6: Log to transcript (Section 2.5)
+    if transcript_manager is not None:
+        transcript_manager.append_message(seqno, ts, ct_b64, sig_b64)
+
 
 def receive_chat_message(
     sock: socket.socket,
     session_key: bytes,
     expected_seqno: int,
-    peer_cert
+    peer_cert,
+    transcript_manager=None
 ) -> tuple[str, int]:
     """
     Section 2.4: Receive, verify, and decrypt a chat message.
@@ -159,12 +167,14 @@ def receive_chat_message(
     1. Check seqno is strictly increasing (replay protection)
     2. Verify signature using sender's certificate and recomputed hash
     3. Decrypt ciphertext with AES-128 and remove PKCS#7 padding
+    4. Log to transcript (Section 2.5)
 
     Args:
         sock: Connected socket
         session_key: 16-byte AES-128 key from DH exchange
         expected_seqno: Expected sequence number (for replay protection)
         peer_cert: Sender's X.509 certificate for signature verification
+        transcript_manager: Optional TranscriptManager for logging (Section 2.5)
 
     Returns:
         Tuple of (plaintext_message, next_expected_seqno)
@@ -203,6 +213,10 @@ def receive_chat_message(
         raise ValueError(f"Decryption failed: {e}")
 
     print(f"[CLIENT] Received message #{chat_msg.seqno}: '{plaintext}' (decrypted)")
+
+    # Step 6: Log to transcript (Section 2.5)
+    if transcript_manager is not None:
+        transcript_manager.append_message(chat_msg.seqno, chat_msg.ts, chat_msg.ct, chat_msg.sig)
 
     # Return plaintext and next expected sequence number
     return plaintext, expected_seqno + 1
