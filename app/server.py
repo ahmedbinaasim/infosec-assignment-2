@@ -96,6 +96,121 @@ def server_session_key_establishment(client_sock: socket.socket) -> bytes:
     return session_key
 
 
+def send_chat_message(
+    client_sock: socket.socket,
+    plaintext: str,
+    session_key: bytes,
+    seqno: int,
+    private_key
+) -> None:
+    """
+    Section 2.4: Send an encrypted and signed chat message.
+
+    Message Transmission Process (PDF Page 4-5, Section 1.3):
+    1. Pad plaintext (PKCS#7) and encrypt with AES-128 using session_key
+    2. Compute digest: h = SHA256(seqno || timestamp || ciphertext)
+    3. Sign digest with sender's RSA private key
+    4. Send as ChatMessage
+
+    Args:
+        client_sock: Connected client socket
+        plaintext: Message to send
+        session_key: 16-byte AES-128 key from DH exchange
+        seqno: Sequence number (strictly increasing)
+        private_key: Sender's RSA private key for signing
+
+    Raises:
+        ConnectionError: If send fails
+    """
+    # Step 1: Get timestamp
+    ts = now_ms()
+
+    # Step 2: Encrypt plaintext with AES-128
+    ciphertext = aes_encrypt(plaintext.encode('utf-8'), session_key)
+    ct_b64 = b64e(ciphertext)
+
+    # Step 3: Compute SHA-256 digest over seqno || timestamp || ciphertext
+    # CRITICAL: Concatenation format matches PDF specification
+    sig_data = f"{seqno}{ts}{ct_b64}".encode('utf-8')
+
+    # Step 4: Sign the digest with RSA private key
+    signature = sign_data(sig_data, private_key)
+    sig_b64 = b64e(signature)
+
+    # Step 5: Create and send ChatMessage
+    chat_msg = ChatMessage(
+        seqno=seqno,
+        ts=ts,
+        ct=ct_b64,
+        sig=sig_b64
+    )
+
+    send_message(client_sock, chat_msg)
+    print(f"[SERVER] Sent message #{seqno}: '{plaintext}' (encrypted)")
+
+
+def receive_chat_message(
+    client_sock: socket.socket,
+    session_key: bytes,
+    expected_seqno: int,
+    peer_cert
+) -> tuple[str, int]:
+    """
+    Section 2.4: Receive, verify, and decrypt a chat message.
+
+    Recipient Verification Process (PDF Page 4, Section 1.3):
+    1. Check seqno is strictly increasing (replay protection)
+    2. Verify signature using sender's certificate and recomputed hash
+    3. Decrypt ciphertext with AES-128 and remove PKCS#7 padding
+
+    Args:
+        client_sock: Connected client socket
+        session_key: 16-byte AES-128 key from DH exchange
+        expected_seqno: Expected sequence number (for replay protection)
+        peer_cert: Sender's X.509 certificate for signature verification
+
+    Returns:
+        Tuple of (plaintext_message, next_expected_seqno)
+
+    Raises:
+        ValueError: With "REPLAY" if seqno doesn't match expected
+        ValueError: With "SIG_FAIL" if signature verification fails
+        ValueError: If decryption fails (padding error)
+    """
+    # Step 1: Receive ChatMessage
+    response = receive_message(client_sock)
+    chat_msg = ChatMessage.model_validate(response)
+
+    # Step 2: Verify sequence number (replay protection)
+    if chat_msg.seqno != expected_seqno:
+        raise ValueError(
+            f"REPLAY: Expected seqno {expected_seqno}, got {chat_msg.seqno}"
+        )
+
+    # Step 3: Recompute digest for signature verification
+    sig_data = f"{chat_msg.seqno}{chat_msg.ts}{chat_msg.ct}".encode('utf-8')
+
+    # Step 4: Verify RSA signature
+    signature = b64d(chat_msg.sig)
+    sig_valid = verify_signature(sig_data, signature, peer_cert)
+
+    if not sig_valid:
+        raise ValueError("SIG_FAIL: Message signature verification failed")
+
+    # Step 5: Decrypt ciphertext
+    ciphertext = b64d(chat_msg.ct)
+    try:
+        plaintext_bytes = aes_decrypt(ciphertext, session_key)
+        plaintext = plaintext_bytes.decode('utf-8')
+    except Exception as e:
+        raise ValueError(f"Decryption failed: {e}")
+
+    print(f"[SERVER] Received message #{chat_msg.seqno}: '{plaintext}' (decrypted)")
+
+    # Return plaintext and next expected sequence number
+    return plaintext, expected_seqno + 1
+
+
 def main():
     """
     Main server workflow.
@@ -106,7 +221,7 @@ def main():
     3. Certificate Verification (Section 2.1)
     4. Authentication (Section 2.2)
     5. Session Key Establishment (Section 2.3) <- IMPLEMENTED
-    6. Chat Loop (Section 2.4)
+    6. Chat Loop (Section 2.4) <- IMPLEMENTED
     7. Session Receipt Generation (Section 2.5)
     """
     print("=" * 80)
@@ -114,22 +229,37 @@ def main():
     print("=" * 80)
 
     # TODO: Implement full server workflow
-    # For now, this is a skeleton showing where Section 2.3 fits
+    # For now, this is a skeleton showing where functions fit
 
     print("\n[INFO] Server workflow not fully implemented yet.")
-    print("[INFO] Section 2.3 (Session Key Establishment) function available:")
-    print("       - server_session_key_establishment(client_sock)")
-    print("\n[INFO] To test Section 2.3, run: python tests/test_section_2.3.py")
+    print("[INFO] Available functions:")
+    print("       Section 2.3: server_session_key_establishment(client_sock)")
+    print("       Section 2.4: send_chat_message(client_sock, plaintext, session_key, seqno, private_key)")
+    print("       Section 2.4: receive_chat_message(client_sock, session_key, expected_seqno, peer_cert)")
+    print("\n[INFO] To test Section 2.4, run: python tests/test_section_2.4.py")
 
-    # Example of where Section 2.3 would be called:
+    # Example of complete workflow:
     # server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # server_sock.bind(('localhost', 5000))
     # server_sock.listen(5)
     # client_sock, addr = server_sock.accept()
     # ... PKI handshake ...
     # ... Authentication ...
-    # session_key = server_session_key_establishment(client_sock)  # <- Section 2.3
-    # ... Use session_key for encrypted chat (Section 2.4) ...
+    # session_key = server_session_key_establishment(client_sock)  # Section 2.3
+    #
+    # # Chat loop (Section 2.4)
+    # server_private_key = load_private_key('certs/server_key.pem')
+    # client_cert = load_certificate('certs/client_cert.pem')
+    # send_seqno = 1
+    # recv_seqno = 1
+    #
+    # while True:
+    #     msg, recv_seqno = receive_chat_message(client_sock, session_key, recv_seqno, client_cert)
+    #     print(f"Client: {msg}")
+    #
+    #     response = generate_response(msg)
+    #     send_chat_message(client_sock, response, session_key, send_seqno, server_private_key)
+    #     send_seqno += 1
 
 
 if __name__ == "__main__":
